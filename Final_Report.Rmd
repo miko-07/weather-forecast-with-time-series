@@ -1,0 +1,211 @@
+---
+title: "Final Report"
+author: "Michael Zhu"
+date: "12/05/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(astsa)
+library(xts)
+library(zoo)
+library(forecast)
+```
+
+# 1-Abstract
+
+In this report, two topics are focused. The first one is to use regression analysis to find the relationship between humidity, time, wind speed, and pressure in Delhi, India in 2017. The result is that the humidity has a negative relationship with time, wind speed, and temperature and has no relationship with pressure in Delhi. The second one is to find the optimal SARIMA model to forecast the average monthly temperature in United Kingdom. After model comparison, seasonal ARMIMA(0,1,2)x(2,1,1) model is a optimal model and the next 5 month forecast is 3.80 Celsius in January, 4.49 Celsius in February, 6.39 Celsius in March, 8.24 Celsius in April, and 11.96 Celsius in December 2020.
+
+# 2-Introduction
+
+Weather is very relevant to human's daily life since it influences almost every aspect,  such as agriculture, health, and travel. The climates in India and United Kingdom are very representative, which India has hot a tropical climate and United Kingdom has a temperate climate. 
+
+The [data](https://www.kaggle.com/sumanthvrao/daily-climate-time-series-data) for Delhi, India provides weather information from 1st January 2017 to 24th April 2017. It contains the temperature, humidity, wind speed, and barometric pressure for the 114 days. And the data are collect from Weather Undergroud API. This report mainly focused on finding the relationship between humidity and other variables since wind speed, temperature, and barometric pressure could possibly influence the water evaporation and then change the air humidity.
+
+The [data](https://www.kaggle.com/aryakrishnanar/average-rainfall-and-temperature-in-uk20102019) for United Kingdom consists average rainfall in millimeters and average temperature in Celsius by month from 2010 to 2019. In this report, seasonal ARIMA model is used to forecast the the average temperature for the next 5 months.
+
+# 3-Statistical Methods
+
+## Part I : Regression analysis on weather data from Delhi, India
+
+```{r, include = FALSE}
+data = read_csv("DailyDelhiClimateTest.csv")
+ts_temp = ts(data$meantemp, start = c(2017, 1), end = c(2017, 114), freq = 365)
+ts_hum = ts(data$humidity, start = c(2017, 1), end = c(2017, 114), freq = 365)
+hum = data$humidity
+pre = data$meanpressure
+ws = data$wind_speed
+temp = data$meantemp
+```
+
+After data is imported, `ts` function are used to transfer humidity to daily time series form, the time series plot of the humidity is following:
+
+```{r, echo = FALSE, out.width= "80%", fig.align='center'}
+tsplot(ts_hum, ylab = 'humidity', main = 'Time Series Plot for Humidity in Delhi, India')
+```
+
+There is a clearly decrease trend for the humidity. There is no clear pattern and the variance is stable from the plot. Next plot is for ACF of the data:
+
+
+```{r, echo = FALSE, out.width= "80%", fig.align='center'}
+par(mfrow = c(2,1))
+acf(ts_hum)
+pacf(ts_hum)
+```
+\
+The ACF of the humidity is slowly decreasing and is not white noise, so it is not stationary.
+
+### Humidity vs. Time and Wind Speed
+
+The regression model for humidity, time, and wind speed is: $humidity = \alpha + \beta_0 t + \beta_1 windspeed$ and the output are:
+
+```{r, include=FALSE}
+reg = lm(ts_hum~time(ts_hum) + ws)
+```
+```{r, echo = FALSE}
+summary(reg)
+```
+
+$\alpha$, $\beta_0$ and $\beta_1$ are significant since the p-values are less than 0.05. The null hypothesis $H_0:\alpha = 0$, $H_1:\beta_0 = 0$, and $H_2:\beta_1 = 0$ are rejected. And the relationship is $humidity =  376700 - 186.7*t - 0.5028*windspeed$. The $R^2$ is 0.8419, which means that 84.19% if variation is accounted for by all the variables.
+
+```{r, echo=FALSE, message=FALSE, results= 'hide', fig.keep= 'all'}
+checkresiduals(reg, test = "LB")
+```
+
+From the diagnostic plots, the residual plot and histogram are in good shape. There are some trend and outliers in ACF of residuals. Further improvement are needed.
+
+### Humidity vs. Time and Temperature
+
+The regression model for humidity, time, and wind speed is: $humidity = \alpha + \beta_0 t + \beta_1 temperature$ and the output are:
+
+```{r, include=FALSE}
+reg = lm(ts_hum~time(ts_hum) + temp)
+```
+```{r, echo = FALSE}
+summary(reg)
+```
+
+$\alpha$, $\beta_0$ and $\beta_1$ are significant since the p-values are less than 0.05. And the relationship is $humidity =  312000 - 154.6*t - 0.5974*temperature$. The $R^2$ is 0.8415, which means that 84.15% if variation is accounted for by all the variables.
+
+```{r, echo=FALSE, message=FALSE, results= 'hide', fig.keep= 'all'}
+checkresiduals(reg, test = "LB")
+```
+
+The residual plot is similar to the previous case, which the ACF of the residual has trend and outliers
+
+### Humidity vs. Time and Pressure
+
+The regression model for humidity, time, and wind speed is: $humidity = \alpha + \beta_0 t + \beta_1 pressure$ and the output are:
+
+```{r, include=FALSE}
+reg = lm(ts_hum~time(ts_hum) + pre)
+```
+```{r, echo = FALSE}
+summary(reg)
+```
+
+The p-value of the coefficient of pressure, 0.975, is much more than the threshold 0.05. Thus, the model is invalided and there is no relationship between humidity and pressure.
+
+
+## Part II: SARIMA model
+
+```{r, include=FALSE}
+data = read_csv("avg_rainfalltemp in UK - Sheet1.csv")
+data = data %>% filter(`Type of period` == 'Monthly')
+temp_ts = ts(data$`Avg temp(in centigrade)`, start = c(2010, 1), end = c(2019, 12),freq = 12)
+```
+The time series plot for weather data from United Kingdom is following:
+
+```{r, echo=FALSE, message=FALSE, results= 'hide', fig.keep= 'all',out.width= "80%", fig.align='center'}
+tsplot(temp_ts, ylab = 'Average Temperature', main = 'Time series plot for weather in United Kingdom')
+acf2(temp_ts)
+```
+
+\
+There is clear seasonal pattern from the plot. The ACF plot also shows the seasonal pattern and does not look like white noise. In order to remove the pattern, differencing method is used and the plot after differencing is following:
+
+```{r, echo=FALSE, message=FALSE, results= 'hide', fig.keep= 'all',out.width= "80%", fig.align='center'}
+diff_temp = diff(diff(temp_ts),12)
+tsplot(diff_temp)
+acf2(diff_temp)
+```
+
+After differencing, there is no clear trend, and ACF and PACF plot also has a white noise shape. Since the data is seasonal, seasonal ARMIA model is used to forecast the future temperature.
+
+### First Seasonal ARIMA Model $SARIMA(0,1,2)*(1,1,1)_{12}$
+
+From the ACF and PACF of the non-seasonal part of differencing data, ACF cuts off after 2 and PACF is tailing off. p = 0, d= 1, and q = 2 is suggested. From the ACF and PACF of the seasonal part of differencing data, ACF and PACF are both tailing off. P = 1, D = 1, Q = 1 , and S =12 is suggested. So the complete model is $SARIMA(0,1,2)*(1,1,1)_{12}$.
+
+```{r,echo=FALSE, message=FALSE, results= 'hide', fig.keep= 'all',out.width= "80%", fig.align='center'}
+mod1 = sarima(temp_ts, p = 0, d = 1, q = 2, P = 1, D = 1, Q = 1, S = 12)
+```
+
+```{r, echo = FALSE}
+mod1$ttable
+```
+
+The Standardized Residuals plot is stable, and most ACF of the residuals lies in the blue line. The Normal Q-Q plot follows normal distribution and most p-value for Ljung-Box statistic are above 0.05. By further analysis of T-table, only the p-value of seasonal AR is slightly above 0.05. Since the data is from a real-life case, it is acceptable. 
+
+### Second Seasonal ARIMA Model $SARIMA(1,1,1)*(1,1,1)_{12}$
+
+The ACF and PACF may have another interpretation. From the ACF and PACF of the non-seasonal part of differencing data, both ACF and PACF are tailing off. p = 1, d= 1, and q = 1 is suggested. From the ACF and PACF of the seasonal part of differencing data, ACF and PACF are both tailing off. P = 1, D = 1, Q = 1 , and S = 12 is suggested. So the complete model is $SARIMA(1,1,1)*(1,1,1)_{12}$.
+
+```{r,echo=FALSE, message=FALSE, results= 'hide', fig.keep= 'all',out.width= "80%", fig.align='center'}
+mod2 = sarima(temp_ts, p = 1, d = 1, q = 1, P = 1, D = 1, Q = 1, S = 12)
+```
+
+```{r, echo = FALSE}
+mod2$ttable
+```
+
+The residuals plots are very similar to the previous model. However, the p-value of seasonal AR is 0.0906, which is almost twice as 0.05 threshold. The model could be considered acceptable but it is not as good as the first one.
+
+### Third Seasonal ARIMA Model $SARIMA(0,1,2)*(2,1,1)_{12}$
+
+For the third model, the nonseasonal part is the same as the first one. Since the ACF and PACF of seasonal part are both tailing off, P = 2, D = 1, Q = 1, and S = 12 is suggested. The complete model is $SARIMA(0,1,2)*(2,1,1)_{12}$
+
+```{r,echo=FALSE, message=FALSE, results= 'hide', fig.keep= 'all',out.width= "80%", fig.align='center'}
+mod3 = sarima(temp_ts, p = 0, d = 1, q = 2, P = 2, D = 1, Q = 1, S = 12)
+```
+
+```{r, echo = FALSE}
+mod3$ttable
+```
+
+The residuals plots are also similar to the previous cases, but there is no outliers in the ACF of the residuals. And only the p-value of seasonal MA part, 0.0557, is slightly larger than threshold 0.05.
+
+### Model Comparision
+
+From the residual plot and significance of the coefficients, the 3rd model is relatively better than the other models. AIC and BIC are used to provide another way to compare the models. The AIC of the 3rd model is obvious smaller than the other models and the BIC of the 1st model is slightly lower than the others. Since the data only contains 120 observations, which is a small sample, the result of AIC is more reliable than BIC. From the residual plots and AIC value, the 3rd model, $SARIMA(0,1,2)*(2,1,1)_{12}$, is the more optimal one.
+
+|Model|AIC|BIC|
+|:--:|:--:|:--:|
+|$SARIMA(0,1,2)*(1,1,1)_{12}$|3.318857|3.432112|
+|$SARIMA(1,1,1)*(1,1,1)_{12}$|3.321896|3.435152|
+|$SARIMA(0,1,2)*(2,1,1)_{12}$|3.303672|3.439579|
+
+### Forecasting with $SARIMA(0,1,2)*(2,1,1)_{12}$
+
+```{r,echo=FALSE, message=FALSE, results= 'hide', fig.keep= 'all',out.width= "80%", fig.align='center'}
+fore = sarima.for(temp_ts,n.ahead = 5,  p = 0, d = 1, q = 2, P = 2, D = 1, Q = 1, S = 12)
+```
+```{r, echo = FALSE}
+fore$pred
+```
+
+The forecasting has a similar pattern with the previous temperature in United Kingdom. The estimated temperature in Celsius for January, February, March, April, and May in 2020 is 3.796, 4.493, 6.392, 8.242, and 11.963 degree respectively.
+
+# 4-Results
+
+India has hot a tropical climate and the air humidity is usually high. In this report, regression analysis is used to show that daily humidity in Delhi, India has a negative with time, wind speed, and temperature. More specifically, the relationship is $humidity =  376700 - 186.7*t - 0.5028*windspeed$ and $humidity =  312000 - 154.6*t - 0.5974*temperature$. With this model, humidity could be estimate with date of the year, wind speed, and temperature to see if there is abnormal weather.
+
+For the weather in United Kingdom, $SARIMA(0,1,2)*(2,1,1)_{12}$ is a useful model to forecast the average monthly temperature. With the data collected from 2010 to 2019, the average monthly temperature in 2020 could be estimated and results are 3.796 degree in January, 4.493 degree in February, 6.392 degree in March, 8.242 degree in April, and 11.963 degree in May.
+
+# 5-Discussion
+
+For the regression analysis of weather in Delhi, India, only observation from the first 114 days in 2017 are used. Thus, there are some limitation of the model since the climate in the 2nd half of the year could be different from the first half. More data should be collected in order to have a more accurate and comprehensive model.
+
+The seasonal ARIMA model for average monthly temperature is also limited on the small sample size. And more indepth comparisons should be applied since all three models are very similar.
